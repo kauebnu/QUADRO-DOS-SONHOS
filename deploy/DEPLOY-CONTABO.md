@@ -12,7 +12,7 @@ Guia passo a passo, do zero até `https://quadrodossonhos.antonellaroweder.com.b
 
 | O quê | Onde consegue |
 |---|---|
-| Acesso SSH à VPS | painel da Contabo |
+| Acesso SSH à VPS | `ssh -i ssh-key-2026-03-21.key root@158.220.116.153` — a chave fica **só na sua máquina**, nunca no repositório nem colada em chat |
 | Projeto no Supabase | https://supabase.com/dashboard |
 | Acesso ao DNS do domínio | painel da HostGator |
 
@@ -86,26 +86,48 @@ Só siga quando aparecer o IP da Contabo.
 
 ## 3. Preparar a VPS
 
-```bash
-ssh root@IP_DA_VPS
+> ### ⚠ Esta VPS é compartilhada
+>
+> O mesmo servidor já roda o **AtendimentoPRO**: webhook na porta **3000**,
+> deploy-server na **9001** e a Evolution API em Docker. Nada disso pode ser
+> tocado. Por isso o WE DREAM sobe com projeto Docker próprio (`we-dream`),
+> rede própria (`we-dream-net`), pasta própria (`/opt/we-dream`) e portas
+> publicadas só em `127.0.0.1`.
+>
+> **Nunca** rode `docker compose down` fora de `/opt/we-dream`, nem
+> `docker system prune -a` (o `-a` apaga imagens de outros projetos).
 
-# Docker (pule se já tiver)
+### Primeiro: a vistoria
+
+Antes de instalar qualquer coisa, rode a vistoria — ela **só lê**, não altera nada:
+
+```bash
+ssh -i ssh-key-2026-03-21.key root@158.220.116.153
+curl -fsSL https://raw.githubusercontent.com/kauebnu/QUADRO-DOS-SONHOS/claude/peaceful-franklin-d0a3qj/deploy/vistoria-vps.sh -o /tmp/vistoria.sh
+bash /tmp/vistoria.sh
+```
+
+Ela informa: portas ocupadas, se há nginx/Traefik/Caddy em 80/443, quais
+domínios já são atendidos, certificados existentes e se o subdomínio já
+aponta para a VPS. Guarde essa saída — ela define os dois pontos abaixo.
+
+### Depois: preparar a pasta
+
+```bash
+# Docker (pule se já tiver — a vistoria mostra a versão)
 docker --version || curl -fsSL https://get.docker.com | sh
 
 # pasta do projeto, separada dos outros
 mkdir -p /opt/we-dream && cd /opt/we-dream
-git clone https://github.com/kauebnu/QUADRO-DOS-SONHOS.git .
+git clone -b claude/peaceful-franklin-d0a3qj \
+  https://github.com/kauebnu/QUADRO-DOS-SONHOS.git .
 ```
 
-### Conferir se as portas estão livres
+### Se 8080 ou 8081 estiverem ocupadas
 
-```bash
-ss -lptn 'sport = :8080'
-ss -lptn 'sport = :8081'
-```
-
-Se algum outro projeto já usa 8080 ou 8081, escolha outras no `.env`
-(`WEB_PORT` / `PUSH_PORT`) e ajuste o `proxy_pass` do nginx do host.
+A vistoria avisa. Nesse caso escolha outras no `.env` (`WEB_PORT` /
+`PUSH_PORT`) e ajuste o `proxy_pass` em
+`deploy/nginx-host-quadrodossonhos.conf` para a mesma porta.
 
 ---
 

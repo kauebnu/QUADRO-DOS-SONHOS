@@ -1,9 +1,17 @@
-# segredos
+# segredos — nunca versionar
 .env
 .env.local
 .env.*.local
 *.pem
 *.key
+*.ppk
+id_rsa*
+id_ed25519*
+ssh-key-*
+known_hosts
+senha*.txt
+*senha*.txt
+credenciais*
 
 # dependências
 node_modules/
