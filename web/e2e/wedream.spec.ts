@@ -274,6 +274,47 @@ test('ritual diário grava o check-in e inicia a sequência', async ({ page }) =
 
 /* ---------------------------------------------------------- apresentação */
 
+test('o X fecha a apresentação mesmo com os controles em repouso', async ({ page }) => {
+  await entrarNaDemo(page)
+  await page.goto('/apresentacao')
+  await expect(page.getByLabel('Sair da apresentação')).toBeVisible()
+
+  // deixa os controles entrarem em repouso (somem depois de ~3,2s)
+  await page.waitForTimeout(4200)
+
+  // mesmo em repouso, o botão de sair continua clicável
+  await page.getByLabel('Sair da apresentação').click()
+  await expect(page.getByRole('heading', { name: 'Em foco agora' })).toBeVisible()
+})
+
+test('o X funciona quando a apresentação é a primeira página aberta', async ({ page }) => {
+  // sem histórico para "voltar": antes, o botão não fazia nada
+  await entrarNaDemo(page)
+  await page.context().clearCookies()
+  await page.goto('/apresentacao')
+  await expect(page.getByLabel('Sair da apresentação')).toBeVisible()
+  await page.getByLabel('Sair da apresentação').click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'Em foco agora' })).toBeVisible()
+})
+
+test('com os controles em repouso, o primeiro toque só os revela', async ({ page }) => {
+  await entrarNaDemo(page)
+  await page.goto('/apresentacao')
+  await expect(page.getByText('1 / 8')).toBeVisible()
+
+  await page.waitForTimeout(4200) // controles em repouso
+
+  // toque na zona esquerda: deve apenas reacender os controles
+  const caixa = page.viewportSize()!
+  await page.mouse.click(Math.round(caixa.width * 0.1), Math.round(caixa.height * 0.5))
+  await expect(page.getByText('1 / 8')).toBeVisible()
+
+  // agora sim o toque navega
+  await page.mouse.click(Math.round(caixa.width * 0.9), Math.round(caixa.height * 0.5))
+  await expect(page.getByText('2 / 8')).toBeVisible()
+})
+
 test('modo apresentação roda os sonhos e tem ajustes', async ({ page }) => {
   await entrarNaDemo(page)
   await page.goto('/apresentacao')

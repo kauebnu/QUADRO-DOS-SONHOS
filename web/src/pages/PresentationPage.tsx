@@ -92,10 +92,23 @@ export function PresentationPage() {
   }, [playing, index, interval, total, go])
 
   /* -------------------------------------------- esconder os controles */
+  // Espelho síncrono da visibilidade + momento em que os controles saíram do
+  // repouso. Precisa ser em ref: o React só processa o setState depois, e o
+  // clique chega antes disso (mousemove e click vêm no mesmo gesto).
+  const visivelRef = useRef(true)
+  const reveladoEm = useRef(0)
+
   const wakeControls = useCallback(() => {
-    setControlsVisible(true)
+    if (!visivelRef.current) {
+      visivelRef.current = true
+      reveladoEm.current = Date.now()
+      setControlsVisible(true)
+    }
     if (hideTimer.current) window.clearTimeout(hideTimer.current)
-    hideTimer.current = window.setTimeout(() => setControlsVisible(false), 3200)
+    hideTimer.current = window.setTimeout(() => {
+      visivelRef.current = false
+      setControlsVisible(false)
+    }, 3200)
   }, [])
 
   useEffect(() => {
@@ -104,6 +117,36 @@ export function PresentationPage() {
       if (hideTimer.current) window.clearTimeout(hideTimer.current)
     }
   }, [wakeControls])
+
+  /**
+   * Sai da apresentação e volta para o painel.
+   *
+   * Vai direto para "/" em vez de voltar no histórico: quando a apresentação
+   * é a primeira página aberta (link direto, atalho do app, PWA recém-aberto),
+   * não há para onde voltar e o botão não faria nada.
+   */
+  const sair = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined)
+    }
+    navigate('/')
+  }, [navigate])
+
+  /**
+   * Com os controles escondidos, o primeiro toque só os traz de volta.
+   *
+   * Comparamos por tempo, e não pelo estado: no Android o navegador dispara
+   * um `mousemove` sintético logo antes do clique, que já teria revelado os
+   * controles — e aí o mesmo toque acabaria trocando de foto.
+   */
+  const aoTocarNaTela = useCallback(
+    (acao: () => void) => {
+      wakeControls()
+      if (Date.now() - reveladoEm.current < 500) return
+      acao()
+    },
+    [wakeControls],
+  )
 
   /* ------------------------------------------------ manter a tela ligada */
   useEffect(() => {
@@ -140,12 +183,12 @@ export function PresentationPage() {
       else if (e.key === ' ') {
         e.preventDefault()
         setPlaying((p) => !p)
-      } else if (e.key === 'Escape' && !document.fullscreenElement) navigate(-1)
+      } else if (e.key === 'Escape' && !document.fullscreenElement) sair()
       wakeControls()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [go, navigate, wakeControls])
+  }, [go, sair, wakeControls])
 
   /* ------------------------------------------------------ tela cheia */
   useEffect(() => {
@@ -162,6 +205,7 @@ export function PresentationPage() {
       /* iOS não suporta em todos os contextos */
     }
   }
+
 
   const quote = useMemo(
     () => DAILY_QUOTES[(index * 7 + 3) % DAILY_QUOTES.length],
@@ -211,22 +255,43 @@ export function PresentationPage() {
       {/*
         Zonas de toque para navegar. Ficam ocultas para leitores de tela
         (aria-hidden) porque duplicam os controles visíveis logo abaixo.
+
+        Com os controles escondidos, o primeiro toque apenas os traz de volta:
+        senão a pessoa que quer sair acaba trocando de foto sem querer.
       */}
       <div
         className="absolute inset-y-0 left-0 w-1/4 z-10"
-        onClick={() => go(-1)}
+        onClick={() => aoTocarNaTela(() => go(-1))}
         aria-hidden="true"
       />
       <div
         className="absolute inset-y-0 right-0 w-1/4 z-10"
-        onClick={() => go(1)}
+        onClick={() => aoTocarNaTela(() => go(1))}
         aria-hidden="true"
       />
       <div
         className="absolute inset-y-0 left-1/4 right-1/4 z-10"
-        onClick={() => setPlaying((p) => !p)}
+        onClick={() => aoTocarNaTela(() => setPlaying((p) => !p))}
         aria-hidden="true"
       />
+
+      {/*
+        Sair fica FORA da camada que some: mesmo em repouso o botão continua
+        visível e clicável, para nunca prender ninguém na apresentação.
+      */}
+      <button
+        onClick={sair}
+        aria-label="Sair da apresentação"
+        className={cn(
+          'absolute z-40 grid h-11 w-11 place-items-center rounded-full',
+          'bg-ink-950/80 backdrop-blur border border-gold-500/25 text-gold-100',
+          'transition-opacity duration-500',
+          controlsVisible ? 'opacity-100' : 'opacity-40 hover:opacity-100 focus:opacity-100',
+        )}
+        style={{ top: 'calc(1.25rem + var(--safe-t))', left: '1rem' }}
+      >
+        <X size={18} />
+      </button>
 
       {/* ------------------------------------------------------ conteúdo */}
       <div
@@ -290,13 +355,8 @@ export function PresentationPage() {
         )}
         style={{ paddingTop: 'calc(1.25rem + var(--safe-t))' }}
       >
-        <button
-          className="grid h-11 w-11 place-items-center rounded-full bg-ink-950/70 backdrop-blur border border-gold-500/20 text-gold-100"
-          onClick={() => navigate(-1)}
-          aria-label="Sair da apresentação"
-        >
-          <X size={18} />
-        </button>
+        {/* espaço reservado para o botão de sair, que vive fora desta camada */}
+        <span className="h-11 w-11 shrink-0" aria-hidden="true" />
 
         <span className="ml-auto text-xs text-gold-100/50 tabular-nums bg-ink-950/60 backdrop-blur rounded-full px-3 py-1.5">
           {index + 1} / {total}
