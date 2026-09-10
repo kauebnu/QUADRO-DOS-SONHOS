@@ -1,0 +1,22 @@
+{
+  "name": "we-dream-push",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Coach diário do WE DREAM: envia uma notificação por dia com uma frase sempre diferente.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "vapid": "node scripts/generate-vapid.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.58.0",
+    "express": "^4.21.2",
+    "web-push": "^3.6.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

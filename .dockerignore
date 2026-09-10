@@ -1,0 +1,26 @@
+# Sem isso, o COPY levaria node_modules do host para dentro da imagem
+# (lento e capaz de quebrar binários compilados para outra plataforma).
+**/node_modules
+**/dist
+**/build
+**/.git
+**/.env
+**/.env.*
+!**/.env.example
+
+# artefatos de teste
+web/test-results
+web/playwright-report
+web/blob-report
+web/screenshots
+
+# stack local do Supabase
+supabase/.temp
+supabase/.branches
+
+# ruído
+**/*.log
+**/.DS_Store
+**/.vscode
+**/.idea
+**/*.tsbuildinfo

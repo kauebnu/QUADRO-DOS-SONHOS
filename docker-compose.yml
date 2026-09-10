@@ -1,0 +1,73 @@
+# =====================================================================
+# WE DREAM — pilha isolada
+#
+# Nada aqui encosta nos outros projetos da VPS:
+#   · nome de projeto próprio (we-dream) → containers, volumes e rede
+#     com prefixo próprio;
+#   · rede interna dedicada, sem link com outras redes;
+#   · as portas são publicadas SOMENTE em 127.0.0.1 — quem fala com a
+#     internet é o proxy reverso do host, que já atende seus outros apps.
+#
+#   docker compose up -d --build
+#   docker compose logs -f
+#   docker compose down
+# =====================================================================
+name: we-dream
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: we-dream-web:latest
+    container_name: we-dream-web
+    restart: unless-stopped
+    environment:
+      WEB_SUPABASE_URL: ${SUPABASE_URL}
+      WEB_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      WEB_VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      WEB_PUSH_API_URL: ${PUSH_API_URL:-}
+    ports:
+      # só o localhost do host enxerga: o proxy reverso publica o domínio
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    networks:
+      - wedream
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  push:
+    build:
+      context: .
+      dockerfile: push-server/Dockerfile
+    image: we-dream-push:latest
+    container_name: we-dream-push
+    restart: unless-stopped
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:contato@antonellaroweder.com.br}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      TICK_MINUTES: ${TICK_MINUTES:-15}
+      DRY_RUN: ${DRY_RUN:-false}
+      TZ: ${TZ:-America/Sao_Paulo}
+    ports:
+      # apenas para diagnóstico local (curl no próprio servidor).
+      # NÃO exponha na internet: este serviço usa a service role key.
+      - "127.0.0.1:${PUSH_PORT:-8081}:8081"
+    networks:
+      - wedream
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  wedream:
+    name: we-dream-net
+    driver: bridge

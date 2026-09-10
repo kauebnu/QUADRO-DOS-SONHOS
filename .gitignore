@@ -1,0 +1,32 @@
+# segredos
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# dependências
+node_modules/
+
+# builds
+dist/
+dist-preview/
+build/
+*.tsbuildinfo
+
+# testes e capturas
+web/test-results/
+web/playwright-report/
+web/screenshots/
+web/blob-report/
+
+# supabase local
+supabase/.temp/
+supabase/.branches/
+
+# sistema / editor
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
