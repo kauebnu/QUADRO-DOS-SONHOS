@@ -40,6 +40,33 @@ o Postgres do aulingo.
 
 ---
 
+## O jeito rápido: um comando só
+
+Conectada na VPS, cole isto. Ele faz tudo — confere o servidor, baixa o
+projeto, gera as chaves, sobe o Supabase, cria as tabelas, sobe o app,
+configura o nginx, emite o HTTPS e testa o resultado:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/kauebnu/QUADRO-DOS-SONHOS/claude/peaceful-franklin-d0a3qj/deploy/instalar.sh)
+```
+
+Pode rodar de novo quantas vezes quiser: o que já está pronto ele pula.
+
+**Ele nunca toca nos seus outros apps.** Antes de qualquer coisa confere se
+as portas estão livres e **aborta** se alguma for de outro projeto. Não roda
+`docker system prune`, não mexe em site já existente do nginx (avisa e pula),
+não abre porta no firewall e valida a configuração antes de recarregar.
+
+Se faltar memória ou uma porta estiver ocupada, ele para e explica — sem
+deixar nada pela metade.
+
+Ao final, as senhas ficam em `/root/we-dream-credenciais.txt`.
+
+O restante deste guia é o passo a passo manual, caso queira acompanhar ou
+resolver algo pontual.
+
+---
+
 ## O que ter em mãos
 
 | O quê | Onde |
