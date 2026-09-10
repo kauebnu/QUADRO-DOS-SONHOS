@@ -50,6 +50,11 @@ PWA em preto e dourado, para instalar no celular.
 │   ├── migrations/         banco, funções e políticas de segurança (RLS)
 │   └── tests/              testes das regras de privacidade
 │
+├── supabase-selfhost/      Supabase rodando na SUA VPS (não no supabase.com)
+│   ├── docker-compose.yml           pilha oficial, sem modificação
+│   ├── docker-compose.override.yml  isolamento + portas presas em 127.0.0.1
+│   └── scripts/            geração e conferência de chaves, migrations, backup
+│
 ├── shared/content.json     as frases — app e servidor usam as mesmas
 ├── deploy/                 nginx, entrypoint e o guia da Contabo
 └── docker-compose.yml      a pilha isolada
@@ -75,6 +80,9 @@ npm start
 
 Sem chaves do Supabase, o app abre em **modo demonstração**: dados de exemplo
 no próprio navegador, todas as telas funcionando, nada é enviado para fora.
+
+Para rodar com um Supabase de verdade, veja
+[supabase-selfhost/README.md](supabase-selfhost/README.md).
 
 ---
 
