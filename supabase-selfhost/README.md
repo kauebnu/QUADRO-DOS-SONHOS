@@ -1,71 +1,67 @@
-# Supabase no seu servidor
+# Supabase do WE DREAM, na sua VPS
 
-Em vez de usar o supabase.com, o WE DREAM roda com um Supabase **na sua
-própria VPS**. Seus dados e as fotos dos sonhos ficam com você, e não há
-limite de projetos.
-
-Esta pasta contém a pilha **oficial** do Supabase (copiada de
-`supabase/supabase/docker`, sem alteração no `docker-compose.yml`) mais os
-ajustes específicos desta VPS, isolados em `docker-compose.override.yml`.
+Em vez do supabase.com, o WE DREAM usa um Supabase rodando no seu próprio
+servidor — **no mesmo padrão do aulingo**, que já está nessa VPS.
 
 ---
 
-## Antes de decidir: o preço disso
+## Por que só 4 containers
 
-Vale saber no que você está entrando:
+A pilha oficial do Supabase são **11 containers e 3–4 GB de RAM**. Sua VPS tem
+8 GB e já roda AtendimentoPRO, Evolution API, aulingo e rachajusto. Instalar a
+pilha completa deixaria tudo no limite — e, faltando memória, o Postgres é o
+primeiro que o sistema derruba.
 
-| | supabase.com | aqui, no seu servidor |
+Aqui ficam só os serviços que o WE DREAM realmente usa (**~1 GB**):
+
+| Serviço | Para quê | Porta (só em `127.0.0.1`) |
 |---|---|---|
-| Custo | grátis até um limite | usa a RAM e o disco da sua VPS |
+| `db` | Postgres com os schemas e papéis do Supabase | 5434 |
+| `auth` | cadastro e login por e-mail/senha (GoTrue) | 4001 |
+| `rest` | responde às consultas do app (PostgREST) | 4002 |
+| `storage` | fotos dos sonhos, com links assinados | 4003 |
+
+**Ficou de fora:** Realtime (o app não assina mudanças ao vivo), Edge Functions,
+Supavisor, Analytics, imgproxy (o app já comprime a foto no celular) e o
+gateway Envoy — **o nginx do host faz esse papel**, exatamente como no aulingo.
+
+O painel visual é opcional e não fica ligado à toa:
+
+```bash
+docker compose --profile studio up -d     # sobe meta + studio
+docker compose stop studio meta           # desliga quando terminar
+```
+
+---
+
+## O preço de hospedar você mesma
+
+| | supabase.com | aqui |
+|---|---|---|
 | Limite de projetos | 2 no plano free | nenhum |
 | Backup | automático | **por sua conta** |
-| Atualização de versão | automática | **por sua conta** |
+| Atualização | automática | **por sua conta** |
 | Se o servidor cair | não afeta | o app sai do ar |
 | Dados | nos EUA | na sua máquina |
 
-**Consumo:** são 11 containers. Conte com **3 a 4 GB de RAM** e ~5 GB de disco
-só para o Supabase — além do que o AtendimentoPRO e a Evolution API já usam.
-Rode `deploy/vistoria-vps.sh` e confira a memória livre antes de subir. Se
-sobrar pouco, o Postgres é o primeiro a ser morto pelo sistema, e aí o app
-inteiro cai.
-
----
-
-## O que já está resolvido aqui
-
-O compose oficial, do jeito que vem, teria dois problemas nesta VPS. O
-`docker-compose.override.yml` corrige os dois:
-
-1. **Nomes de container colidiriam.** O oficial usa `supabase-db`,
-   `supabase-auth`… Nome de container é global no Docker; se o aulingo já
-   roda um Supabase aqui, sobe um por cima do outro. Renomeamos tudo para
-   `wedream-supabase-*`.
-
-2. **O banco subiria aberto para a internet.** O oficial publica o Postgres
-   (5432), o pooler (6543) e o gateway (8000) em todas as interfaces.
-   Prendemos os três em `127.0.0.1` — só o proxy reverso do host enxerga.
-
-> ⚠ **O `COMPOSE_FILE` do `.env` precisa listar o override.** O `.env` oficial
-> traz `COMPOSE_FILE=docker-compose.yml`, e isso **desliga** a descoberta
-> automática do override — o banco subiria exposto sem nenhum aviso. O
-> `gerar-env.mjs` já grava o valor certo, e o `verificar-env.mjs` reclama se
-> estiver errado.
+O passo 6 abaixo resolve o backup. Não pule.
 
 ---
 
 ## Passo a passo
 
-### 1. Os dois subdomínios
-
-No DNS da HostGator, apontando para o IP da VPS:
+### 1. Dois subdomínios no DNS
 
 | Tipo | Nome | Aponta para |
 |---|---|---|
-| A | `quadrodossonhos` | IP da VPS |
-| A | `api.quadrodossonhos` | IP da VPS |
+| A | `quadrodossonhos` | `158.220.116.153` |
+| A | `api.quadrodossonhos` | `158.220.116.153` |
 
-O segundo é a API do Supabase. Confirme com
-`dig +short api.quadrodossonhos.antonellaroweder.com.br`.
+Confirme antes de seguir — o certbot falha se o DNS ainda não propagou:
+
+```bash
+dig +short api.quadrodossonhos.antonellaroweder.com.br
+```
 
 ### 2. Gerar as chaves
 
@@ -74,113 +70,98 @@ cd /opt/we-dream/supabase-selfhost
 node scripts/gerar-env.mjs --app quadrodossonhos.antonellaroweder.com.br
 ```
 
-Isso cria o `.env` com senhas e chaves novas e imprime na tela:
+Ele recusa portas já usadas nesta VPS e imprime:
 
 - as três linhas para colar no `.env` do WE DREAM;
-- o usuário e a senha do painel (Studio);
 - a senha do Postgres.
 
-**Guarde isso fora da VPS.** Perder o `JWT_SECRET` invalida todas as sessões.
-
-Confira antes de subir:
+**Guarde fora da VPS.** Perder o `JWT_SECRET` invalida todas as sessões.
 
 ```bash
-node scripts/verificar-env.mjs
+node scripts/verificar-env.mjs      # só siga com ✅
 ```
-
-Ele valida a assinatura das chaves, os tamanhos exatos que cada serviço
-exige, o isolamento e as URLs. Só siga com `✅`.
 
 ### 3. Subir
 
 ```bash
 docker compose up -d
-docker compose ps          # espere todos ficarem healthy (~2 min na 1ª vez)
+docker compose ps        # os 4 devem ficar healthy (~1 min)
 ```
 
-### 4. Criar as tabelas do WE DREAM
+### 4. Criar as tabelas
 
 ```bash
 ./scripts/aplicar-migrations.sh
 ```
 
-Ao final confere sozinho: 12 tabelas, todas com RLS, o bucket de fotos
-privado e o gatilho de novo usuário. Pode rodar de novo quando quiser.
+Confere sozinho ao final: 12 tabelas, todas com RLS, bucket de fotos privado e
+gatilho de novo usuário. Pode rodar de novo quando quiser.
 
-### 5. Publicar a API com HTTPS
+### 5. Publicar a API
+
+O nginx faz o papel de gateway, encaminhando cada prefixo:
 
 ```bash
+sudo cp ../deploy/nginx-proxy-comum.conf /etc/nginx/wedream-proxy-comum.conf
 sudo cp ../deploy/nginx-host-api-supabase.conf \
         /etc/nginx/sites-available/api-quadrodossonhos.conf
 sudo ln -s /etc/nginx/sites-available/api-quadrodossonhos.conf /etc/nginx/sites-enabled/
-sudo certbot --nginx -d api.quadrodossonhos.antonellaroweder.com.br
 sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d api.quadrodossonhos.antonellaroweder.com.br
 ```
 
-Teste:
+Teste os três caminhos:
 
 ```bash
 curl -s https://api.quadrodossonhos.antonellaroweder.com.br/auth/v1/health
+curl -s -o /dev/null -w '%{http_code}\n' \
+     https://api.quadrodossonhos.antonellaroweder.com.br/rest/v1/
+curl -s https://api.quadrodossonhos.antonellaroweder.com.br/storage/v1/status
 ```
 
-### 6. Ligar o WE DREAM nele
-
-Cole no `/opt/we-dream/.env` as três linhas que o `gerar-env.mjs` imprimiu e:
+### 6. Backup — configure hoje
 
 ```bash
-cd /opt/we-dream && docker compose up -d
+mkdir -p /root/backups/wedream
+crontab -e
 ```
+
+```cron
+0 3 * * * /opt/we-dream/supabase-selfhost/scripts/backup.sh >> /var/log/wedream-backup.log 2>&1
+```
+
+Guarda banco, fotos e chaves, com 14 dias de rotação. **Copie para fora da
+VPS** — backup no mesmo servidor não protege contra perder o servidor.
 
 ---
 
 ## O painel (Studio)
 
-`https://api.quadrodossonhos.antonellaroweder.com.br` abre o Studio, com o
-usuário e a senha do `.env` (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`).
-De lá dá para ver as tabelas, os usuários cadastrados e as fotos.
+Não fica exposto na internet. Para usar, abra um túnel da sua máquina:
+
+```bash
+ssh -i ssh-key-2026-03-21.key -L 4004:127.0.0.1:4004 root@158.220.116.153
+```
+
+E acesse `http://localhost:4004` no navegador. Para ver dados rapidamente sem
+o Studio:
+
+```bash
+docker exec -it wedream-db psql -U postgres -c "select display_name, created_at from profiles;"
+docker exec -it wedream-db psql -U postgres -c "select title, status from dreams;"
+```
 
 ---
 
 ## E-mail
 
-O `gerar-env.mjs` deixa `ENABLE_EMAIL_AUTOCONFIRM=true`: a conta é criada e
-já entra, sem passar por confirmação. É o único jeito de funcionar sem um
-servidor de e-mail — **mas com isso a recuperação de senha não funciona**.
+O gerador deixa `ENABLE_EMAIL_AUTOCONFIRM=true`: a conta é criada e já entra,
+sem confirmar. É o único jeito de funcionar sem servidor de e-mail — **mas
+assim a recuperação de senha não funciona**.
 
-Para resolver, configure um SMTP no `.env` (Resend, Brevo, Amazon SES, ou o
-SMTP do seu e-mail) e depois mude `ENABLE_EMAIL_AUTOCONFIRM=false`:
-
-```ini
-SMTP_HOST=smtp.seuprovedor.com
-SMTP_PORT=587
-SMTP_USER=...
-SMTP_PASS=...
-SMTP_ADMIN_EMAIL=contato@antonellaroweder.com.br
-SMTP_SENDER_NAME=WE DREAM
-```
-
----
-
-## Backup — isto é com você agora
-
-Sem o supabase.com, ninguém faz backup por você. O mínimo:
-
-```bash
-# banco
-docker exec wedream-supabase-db pg_dump -U postgres postgres \
-  | gzip > /root/backups/wedream-$(date +%F).sql.gz
-
-# fotos
-tar czf /root/backups/wedream-fotos-$(date +%F).tar.gz \
-  -C /opt/we-dream/supabase-selfhost/volumes storage
-```
-
-Coloque no cron (`crontab -e`) e **copie para fora da VPS** — backup que mora
-no mesmo servidor não protege contra perder o servidor:
-
-```cron
-0 3 * * * /opt/we-dream/supabase-selfhost/scripts/backup.sh >> /var/log/wedream-backup.log 2>&1
-```
+Para resolver, preencha o SMTP no `.env` (Resend, Brevo, SES ou o SMTP do seu
+e-mail), mude `ENABLE_EMAIL_AUTOCONFIRM=false` e rode
+`docker compose up -d auth`.
 
 ---
 
@@ -189,32 +170,44 @@ no mesmo servidor não protege contra perder o servidor:
 ```bash
 cd /opt/we-dream/supabase-selfhost
 
-docker compose ps                    # estado dos 11 containers
-docker compose logs -f auth          # login com problema
-docker compose logs -f db            # banco
-docker compose restart auth          # reiniciar um serviço
-docker compose down                  # derruba SÓ o Supabase do WE DREAM
-docker stats $(docker ps --filter name=wedream- -q)   # consumo
+docker compose ps                 # estado dos 4
+docker compose logs -f auth       # login com problema
+docker compose logs -f rest       # consulta com problema
+docker compose logs -f storage    # foto com problema
+docker compose restart auth
+docker compose down               # derruba SÓ o Supabase do WE DREAM
+
+docker stats $(docker ps --filter name=wedream- -q)
 ```
 
 > **Nunca** rode `docker system prune -a` nesta VPS: o `-a` apaga imagens de
-> outros projetos, incluindo a Evolution API do AtendimentoPRO.
+> outros projetos, incluindo a Evolution API e o aulingo.
 
 ---
 
-## Atualizar o Supabase depois
+## Se algo der errado
 
-O `docker-compose.yml` é o oficial, sem modificação — dá para trocar por uma
-versão nova e manter o `docker-compose.override.yml` como está:
+| Sintoma | Onde olhar |
+|---|---|
+| "Invalid API key" no app | a `ANON_KEY` do `/opt/we-dream/.env` tem de ser a do mesmo `.env` daqui. Rode `node scripts/verificar-env.mjs` |
+| Cadastro não conclui | `docker compose logs auth`; conferir `SITE_URL` e `ADDITIONAL_REDIRECT_URLS` |
+| Consultas com 401 | o `JWT_SECRET` mudou depois de gerar as chaves — regere as duas juntas |
+| Foto envia mas não aparece | `docker compose logs storage`; o `aplicar-migrations.sh` rodou? o bucket `dream-images` existe? |
+| Foto com link quebrado | conferir `SUPABASE_PUBLIC_URL` e se o nginx está limpando `X-Forwarded-Path` |
+| `rest` não fica healthy | `PGRST_DB_SCHEMAS` precisa conter `public,storage` |
+| Postgres reiniciando | falta de memória: `free -h` e `docker stats` |
+
+---
+
+## Atualizar depois
 
 ```bash
 cd /opt/we-dream/supabase-selfhost
-cp docker-compose.yml docker-compose.yml.bak
-curl -fsSL -o docker-compose.yml \
-  https://raw.githubusercontent.com/supabase/supabase/master/docker/docker-compose.yml
-sed -i 's/^name: supabase$/name: we-dream-supabase/' docker-compose.yml
+./scripts/backup.sh                       # sempre antes
+# edite as tags de imagem no docker-compose.yml
 docker compose pull && docker compose up -d
+docker compose ps
 ```
 
-Faça backup antes. E confira as notas de versão do Supabase — de vez em
-quando há mudança que exige ajuste no `.env`.
+As versões estão fixadas de propósito — nada muda sozinho debaixo de você.
+Confira as notas de versão do Supabase antes de subir de versão.

@@ -24,13 +24,19 @@ Três peças, cada uma isolada:
 
 | Peça | Onde | Porta local | Domínio |
 |---|---|---|---|
-| **App** (PWA) | `/opt/we-dream` | 8080 | `quadrodossonhos.antonellaroweder.com.br` |
-| **Coach diário** (notificações) | `/opt/we-dream` | 8081 | nenhum — só interno |
-| **Supabase** (contas, banco, fotos) | `/opt/we-dream/supabase-selfhost` | 8000 | `api.quadrodossonhos.antonellaroweder.com.br` |
+| **App** (PWA) | `/opt/we-dream` | 4000 | `quadrodossonhos.antonellaroweder.com.br` |
+| **Coach diário** (notificações) | `/opt/we-dream` | 4100 | nenhum — só interno |
+| **Supabase** (4 containers) | `/opt/we-dream/supabase-selfhost` | 4001-4003, 5434 | `api.quadrodossonhos.antonellaroweder.com.br` |
 
-O Supabase roda **na sua VPS**, não no supabase.com: sem limite de projetos,
-dados e fotos na sua máquina. Em troca, backup e atualização passam a ser sua
-responsabilidade — veja `supabase-selfhost/README.md`.
+O Supabase roda **na sua VPS**, não no supabase.com — no mesmo padrão do
+aulingo: só os 4 serviços que o app usa (~1 GB), com o nginx fazendo o papel
+de gateway. Em troca, backup e atualização passam a ser sua responsabilidade
+— veja `supabase-selfhost/README.md`.
+
+**Portas já ocupadas nesta VPS** (do handoff do AtendimentoPRO):
+`22 80 443 3000 3100 5432 5433 6379 8080 9001 9998 9999`. Por isso o app usa
+4000/4100 e o Supabase 4001-4003 + 5434 — a 8080 é a Evolution API e a 5433 é
+o Postgres do aulingo.
 
 ---
 
@@ -55,10 +61,10 @@ bash /tmp/vistoria.sh
 
 Ela responde as perguntas que decidem o resto:
 
-- **Memória livre.** O Supabase são 11 containers, de 3 a 4 GB de RAM, além do
-  que já roda. Sem folga, o Postgres é o primeiro a ser morto pelo sistema — e
-  o app cai junto. Se estiver apertado, pare aqui e me avise.
-- **As portas 8000, 8080, 8081, 5433 e 6544 estão livres?**
+- **Memória livre.** O Supabase enxuto usa ~1 GB e o app ~150 MB, além do que
+  já roda (AtendimentoPRO, Evolution, aulingo, rachajusto). Se sobrarem menos
+  de 2 GB, pare aqui e me avise.
+- **As portas 4000, 4100, 4001, 4002, 4003 e 5434 estão livres?**
 - **Já existe nginx, Traefik ou Caddy em 80/443?**
 - **Já existe outro Supabase rodando** (do aulingo, por exemplo)?
 
@@ -118,9 +124,9 @@ a senha do Postgres. Guarde fora da VPS.
 # confere assinatura das chaves, tamanhos, isolamento e URLs
 node scripts/verificar-env.mjs
 
-# sobe (na primeira vez baixa ~2 GB de imagens)
+# sobe os 4 containers (na primeira vez baixa ~800 MB de imagens)
 docker compose up -d
-docker compose ps        # espere todos ficarem healthy, ~2 min
+docker compose ps        # espere os 4 ficarem healthy, ~1 min
 
 # cria as tabelas do WE DREAM
 ./scripts/aplicar-migrations.sh
@@ -167,8 +173,8 @@ VAPID_PUBLIC_KEY=BN...
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:contato@antonellaroweder.com.br
 
-WEB_PORT=8080
-PUSH_PORT=8081
+WEB_PORT=4000
+PUSH_PORT=4100
 ADMIN_TOKEN=cole-o-resultado-de: openssl rand -hex 24
 TZ=America/Sao_Paulo
 ```
@@ -190,10 +196,11 @@ docker compose ps
 `we-dream-web` e `we-dream-push` devem ficar `healthy`. Teste por dentro:
 
 ```bash
-curl -s http://127.0.0.1:8080/health     # {"ok":true,"servico":"we-dream-web"}
-curl -s http://127.0.0.1:8081/health     # {"ok":true,"servico":"we-dream-push"}
-curl -s http://127.0.0.1:8080/config.js  # deve mostrar a URL da sua API
-curl -s http://127.0.0.1:8000/auth/v1/health   # Supabase respondendo
+curl -s http://127.0.0.1:4000/health     # {"ok":true,"servico":"we-dream-web"}
+curl -s http://127.0.0.1:4100/health     # {"ok":true,"servico":"we-dream-push"}
+curl -s http://127.0.0.1:4000/config.js  # deve mostrar a URL da sua API
+curl -s http://127.0.0.1:4001/health           # login (GoTrue) respondendo
+curl -s http://127.0.0.1:4003/status           # fotos respondendo
 ```
 
 ---
@@ -210,7 +217,8 @@ cp /opt/we-dream/deploy/nginx-host-quadrodossonhos.conf \
    /etc/nginx/sites-available/quadrodossonhos.conf
 ln -s /etc/nginx/sites-available/quadrodossonhos.conf /etc/nginx/sites-enabled/
 
-# API do Supabase
+# API do Supabase (o arquivo comum precisa vir junto)
+cp /opt/we-dream/deploy/nginx-proxy-comum.conf /etc/nginx/wedream-proxy-comum.conf
 cp /opt/we-dream/deploy/nginx-host-api-supabase.conf \
    /etc/nginx/sites-available/api-quadrodossonhos.conf
 ln -s /etc/nginx/sites-available/api-quadrodossonhos.conf /etc/nginx/sites-enabled/
@@ -222,9 +230,9 @@ certbot --nginx -d api.quadrodossonhos.antonellaroweder.com.br
 nginx -t && systemctl reload nginx
 ```
 
-> Se o `nginx -t` reclamar de **`duplicate map "$http_upgrade"`**, é porque
-> outro site já define esse mapa. Apague as 4 últimas linhas de
-> `/etc/nginx/sites-available/api-quadrodossonhos.conf` e teste de novo.
+> Se o `nginx -t` reclamar de arquivo não encontrado, é o
+> `wedream-proxy-comum.conf` — confirme que ele foi copiado para
+> `/etc/nginx/`.
 
 A renovação é automática (`systemctl status certbot.timer`).
 
@@ -242,18 +250,21 @@ Adicione ao serviço `web` do `/opt/we-dream/docker-compose.yml`:
       - "traefik.http.services.wedream.loadbalancer.server.port=80"
 ```
 
-E o equivalente para o `api-gw` do Supabase, apontando para a porta 8000.
-Conecte à rede do Traefik **apenas** esses dois serviços — o `push` e o banco
-nunca devem ser publicados.
+Para a API do Supabase o Traefik precisa de três rotas com remoção de
+prefixo (`/auth/v1` → auth:9999, `/rest/v1` → rest:3000, `/storage/v1` →
+storage:5000). Se sua VPS usa Traefik, me avise que eu escrevo as labels.
+O `push` e o banco nunca devem ser publicados.
 
 ### Se a VPS usa **Caddy**
 
 ```
 quadrodossonhos.antonellaroweder.com.br {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:4000
 }
 api.quadrodossonhos.antonellaroweder.com.br {
-    reverse_proxy 127.0.0.1:8000
+    handle_path /auth/v1/*    { reverse_proxy 127.0.0.1:4001 }
+    handle_path /rest/v1/*    { reverse_proxy 127.0.0.1:4002 }
+    handle_path /storage/v1/* { reverse_proxy 127.0.0.1:4003 }
 }
 ```
 
@@ -274,7 +285,7 @@ api.quadrodossonhos.antonellaroweder.com.br {
 6. Force uma rodada real:
 
 ```bash
-curl -X POST -H "x-admin-token: SEU_ADMIN_TOKEN" http://127.0.0.1:8081/run
+curl -X POST -H "x-admin-token: SEU_ADMIN_TOKEN" http://127.0.0.1:4100/run
 ```
 
 > A rodada só envia para quem está **na hora escolhida** e não recebeu nas
@@ -325,7 +336,7 @@ docker compose restart push
 docker compose up -d --build          # depois de um git pull
 
 cd /opt/we-dream/supabase-selfhost
-docker compose ps                     # os 11 do Supabase
+docker compose ps                     # os 4 do Supabase
 docker compose logs -f auth           # problema de login
 docker compose logs -f db             # banco
 
@@ -339,7 +350,7 @@ docker stats $(docker ps --filter name=we-dream --filter name=wedream- -q)
 | Sintoma | Onde olhar |
 |---|---|
 | Site não abre | `docker compose ps`, `nginx -t`, `dig +short quadrodossonhos...` |
-| Abre em "modo demonstração" | `curl 127.0.0.1:8080/config.js` — as chaves estão lá? |
+| Abre em "modo demonstração" | `curl 127.0.0.1:4000/config.js` — as chaves estão lá? |
 | Login não funciona | `docker compose logs auth` no supabase-selfhost; conferir `SITE_URL` e `API_EXTERNAL_URL` no `.env` de lá |
 | "Invalid API key" | a `ANON_KEY` do `/opt/we-dream/.env` precisa ser a do MESMO `.env` do Supabase. Rode `node scripts/verificar-env.mjs` |
 | Fotos não aparecem | `docker compose logs storage`; o `aplicar-migrations.sh` rodou? |

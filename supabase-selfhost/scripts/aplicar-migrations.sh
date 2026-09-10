@@ -11,7 +11,7 @@ set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RAIZ="$(cd "$AQUI/../.." && pwd)"
-CONTAINER="${CONTAINER_DB:-wedream-supabase-db}"
+CONTAINER="${CONTAINER_DB:-wedream-db}"
 MIGRATIONS="$RAIZ/supabase/migrations"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then

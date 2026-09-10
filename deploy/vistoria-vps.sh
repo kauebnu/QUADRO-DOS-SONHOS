@@ -73,14 +73,14 @@ case "$FERRAMENTA" in
   *)       echo "  ⚠ ss, netstat e lsof indisponíveis — não deu para listar" ;;
 esac
 
-titulo "As portas que o WE DREAM quer usar"
+titulo "As portas que o WE DREAM quer usar (app 4000/4100 · Supabase 4001-4003/5434)"
 if [ -z "$FERRAMENTA" ]; then
   # Sem ferramenta não dá para afirmar nada. Dizer "livre" aqui seria mentira
   # capaz de derrubar outro projeto que já usa a porta.
   echo "  ⚠ NÃO FOI POSSÍVEL VERIFICAR (instale iproute2: apt install -y iproute2)"
   echo "    Confira à mão antes de subir."
 else
-  for p in 8080 8081; do
+  for p in 4000 4100 4001 4002 4003 5434; do
     case "$FERRAMENTA" in
       ss)      ocupada=$(ss -lptnH "sport = :$p" 2>/dev/null) ;;
       netstat) ocupada=$(netstat -lptn 2>/dev/null | awk -v p=":$p\$" '$4 ~ p') ;;

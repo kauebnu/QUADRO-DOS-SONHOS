@@ -29,7 +29,7 @@ services:
       WEB_PUSH_API_URL: ${PUSH_API_URL:-}
     ports:
       # só o localhost do host enxerga: o proxy reverso publica o domínio
-      - "127.0.0.1:${WEB_PORT:-8080}:80"
+      - "127.0.0.1:${WEB_PORT:-4000}:80"
     networks:
       - wedream
     logging:
@@ -58,7 +58,7 @@ services:
     ports:
       # apenas para diagnóstico local (curl no próprio servidor).
       # NÃO exponha na internet: este serviço usa a service role key.
-      - "127.0.0.1:${PUSH_PORT:-8081}:8081"
+      - "127.0.0.1:${PUSH_PORT:-4100}:8081"
     networks:
       - wedream
     logging:

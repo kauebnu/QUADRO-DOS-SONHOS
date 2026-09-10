@@ -50,9 +50,8 @@ PWA em preto e dourado, para instalar no celular.
 │   ├── migrations/         banco, funções e políticas de segurança (RLS)
 │   └── tests/              testes das regras de privacidade
 │
-├── supabase-selfhost/      Supabase rodando na SUA VPS (não no supabase.com)
-│   ├── docker-compose.yml           pilha oficial, sem modificação
-│   ├── docker-compose.override.yml  isolamento + portas presas em 127.0.0.1
+├── supabase-selfhost/      Supabase na SUA VPS — 4 containers, padrão aulingo
+│   ├── docker-compose.yml  db · auth · rest · storage (painel é opcional)
 │   └── scripts/            geração e conferência de chaves, migrations, backup
 │
 ├── shared/content.json     as frases — app e servidor usam as mesmas

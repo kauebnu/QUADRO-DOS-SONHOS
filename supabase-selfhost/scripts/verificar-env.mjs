@@ -1,13 +1,14 @@
 /**
- * Confere o .env do Supabase self-hosted ANTES de subir a pilha.
+ * Confere o .env do Supabase ANTES de subir a pilha.
  *
  *   node scripts/verificar-env.mjs
  *
  * Verifica o que costuma quebrar um self-hosted:
- *   · as chaves ANON e SERVICE_ROLE realmente assinadas pelo JWT_SECRET
- *   · segredos com o tamanho exato que cada serviço exige
- *   · COMPOSE_FILE incluindo o override (sem ele o Postgres sobe exposto)
- *   · URLs coerentes e em HTTPS
+ *   · chaves anon/service_role realmente assinadas pelo JWT_SECRET
+ *   · nenhum segredo em branco ou de exemplo
+ *   · portas livres nesta VPS e sem repetição
+ *   · URLs coerentes, em HTTPS, com API em domínio próprio
+ *   · "storage" presente em PGRST_DB_SCHEMAS (sem isso as fotos não funcionam)
  *
  * Sai com código 1 se algo estiver errado.
  */
@@ -19,8 +20,11 @@ import { fileURLToPath } from 'node:url'
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const caminho = resolve(raiz, '.env')
 
+/** Portas usadas por outros apps desta VPS. */
+const PORTAS_OCUPADAS = new Set([22, 80, 443, 3000, 3100, 5432, 5433, 6379, 8080, 9001, 9998, 9999])
+
 if (!existsSync(caminho)) {
-  console.error(`✗ Não existe ${caminho}. Rode antes: node scripts/gerar-env.mjs --app SEU.DOMINIO`)
+  console.error(`✗ Não existe ${caminho}\n  Rode antes: node scripts/gerar-env.mjs --app SEU.DOMINIO`)
   process.exit(1)
 }
 
@@ -32,12 +36,12 @@ const env = Object.fromEntries(
 )
 
 let falhas = 0
-const ok = (msg) => console.log(`  ✓ ${msg}`)
-const erro = (msg) => {
-  console.log(`  ✗ ${msg}`)
+const ok = (m) => console.log(`  ✓ ${m}`)
+const erro = (m) => {
+  console.log(`  ✗ ${m}`)
   falhas++
 }
-const aviso = (msg) => console.log(`  ⚠ ${msg}`)
+const aviso = (m) => console.log(`  ⚠ ${m}`)
 
 const b64url = (buf) =>
   Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -71,101 +75,91 @@ for (const [nome, papel] of [
     continue
   }
   if (carga.role !== papel) {
-    erro(`${nome}: papel é "${carga.role}", deveria ser "${papel}"`)
+    erro(`${nome}: papel "${carga.role}", deveria ser "${papel}"`)
+  } else if (carga.exp <= Date.now() / 1000) {
+    erro(`${nome} está EXPIRADA`)
+  } else {
+    const anos = ((carga.exp - Date.now() / 1000) / (60 * 60 * 24 * 365)).toFixed(1)
+    ok(`${nome}: assinatura confere, papel correto, expira em ${anos} anos`)
+  }
+}
+
+console.log('\n── Segredos ──')
+for (const chave of ['POSTGRES_PASSWORD', 'JWT_SECRET']) {
+  const v = env[chave] ?? ''
+  if (!v) erro(`${chave} vazia`)
+  else if (v.length < 32) erro(`${chave} tem ${v.length} caracteres — use pelo menos 32`)
+  else ok(`${chave}: ${v.length} caracteres`)
+}
+if (/your-super-secret|this_password|change-me|senha123/i.test(JSON.stringify(env))) {
+  erro('ainda há valores de exemplo no .env — troque todos')
+}
+
+console.log('\n── Portas ──')
+const portas = ['POSTGRES_PORT', 'AUTH_PORT', 'REST_PORT', 'STORAGE_PORT']
+const usadas = new Map()
+for (const p of portas) {
+  const v = Number(env[p])
+  if (!v) {
+    erro(`${p} não definida`)
     continue
   }
-  const anos = ((carga.exp - Date.now() / 1000) / (60 * 60 * 24 * 365)).toFixed(1)
-  if (carga.exp <= Date.now() / 1000) erro(`${nome} está EXPIRADA`)
-  else ok(`${nome}: assinatura confere, papel correto, expira em ${anos} anos`)
-}
-
-console.log('\n── Tamanhos exigidos ──')
-for (const [chave, tamanho] of Object.entries({
-  REALTIME_DB_ENC_KEY: 16,
-  VAULT_ENC_KEY: 32,
-  PG_META_CRYPTO_KEY: 32,
-  SECRET_KEY_BASE: 64,
-})) {
-  const v = env[chave] ?? ''
-  if (v.length === tamanho) ok(`${chave}: ${tamanho} caracteres`)
-  else erro(`${chave}: tem ${v.length}, precisa de exatamente ${tamanho}`)
-}
-
-console.log('\n── Segredos obrigatórios preenchidos ──')
-// As chaves assimétricas (ES256) ficam vazias de propósito: estamos no modo
-// simétrico HS256, o mesmo do supabase.com.
-const podemFicarVazias = new Set([
-  'SUPABASE_PUBLISHABLE_KEY',
-  'SUPABASE_SECRET_KEY',
-  'ANON_KEY_ASYMMETRIC',
-  'SERVICE_ROLE_KEY_ASYMMETRIC',
-  'JWT_KEYS',
-  'JWT_JWKS',
-  'OPENAI_API_KEY',
-  'SMTP_USER',
-  'SMTP_PASS',
-  'GOOGLE_PROJECT_ID',
-  'GOOGLE_PROJECT_NUMBER',
-])
-const vazias = Object.entries(env)
-  .filter(([k, v]) => /PASSWORD|SECRET|_KEY|TOKEN/.test(k) && !v && !podemFicarVazias.has(k))
-  .map(([k]) => k)
-if (vazias.length) erro(`vazias: ${vazias.join(', ')}`)
-else ok('nenhum segredo essencial em branco')
-
-if (env.POSTGRES_PASSWORD && env.POSTGRES_PASSWORD.length < 20) {
-  aviso('POSTGRES_PASSWORD está curta — use pelo menos 20 caracteres')
-}
-if (/insecure|your-super-secret|this_password/.test(JSON.stringify(env))) {
-  erro('ainda há valores de exemplo do Supabase no .env — troque todos')
-}
-
-console.log('\n── Isolamento e portas ──')
-if ((env.COMPOSE_FILE ?? '').includes('docker-compose.override.yml')) {
-  ok('COMPOSE_FILE inclui o override (portas presas em 127.0.0.1)')
-} else {
-  erro(
-    'COMPOSE_FILE NÃO inclui docker-compose.override.yml — sem ele o Postgres ' +
-      'e o gateway sobem abertos para a internet',
-  )
-}
-if (env.COMPOSE_PROJECT_NAME) ok(`projeto isolado: ${env.COMPOSE_PROJECT_NAME}`)
-else aviso('COMPOSE_PROJECT_NAME não definido')
-
-for (const p of ['POSTGRES_PORT', 'POOLER_PROXY_PORT_TRANSACTION', 'API_GW_HTTP_PORT']) {
-  if (env[p]) ok(`${p} = ${env[p]}`)
-  else erro(`${p} não definida`)
-}
-if (env.POSTGRES_PORT === '5432') {
-  aviso('POSTGRES_PORT 5432 é a padrão — confira se nenhum outro projeto a usa')
+  if (PORTAS_OCUPADAS.has(v)) {
+    erro(`${p} = ${v} — já usada por outro app desta VPS`)
+  } else if (usadas.has(v)) {
+    erro(`${p} = ${v} — mesma porta de ${usadas.get(v)}`)
+  } else {
+    usadas.set(v, p)
+    ok(`${p} = ${v}`)
+  }
 }
 
 console.log('\n── Endereços ──')
-for (const chave of ['SUPABASE_PUBLIC_URL', 'API_EXTERNAL_URL', 'SITE_URL']) {
+for (const chave of ['SITE_URL', 'API_EXTERNAL_URL', 'SUPABASE_PUBLIC_URL']) {
   const v = env[chave] ?? ''
   if (!v) erro(`${chave} vazia`)
   else if (!v.startsWith('https://')) erro(`${chave} não usa https: ${v}`)
   else ok(`${chave} = ${v}`)
 }
 if (env.API_EXTERNAL_URL && env.SITE_URL && env.API_EXTERNAL_URL === env.SITE_URL) {
-  erro('API_EXTERNAL_URL e SITE_URL são iguais — a API precisa de um domínio próprio')
+  erro('API_EXTERNAL_URL e SITE_URL são iguais — a API precisa de domínio próprio')
+}
+if (env.API_EXTERNAL_URL !== env.SUPABASE_PUBLIC_URL) {
+  erro('API_EXTERNAL_URL e SUPABASE_PUBLIC_URL precisam ser iguais')
+}
+if (env.ADDITIONAL_REDIRECT_URLS && env.SITE_URL) {
+  if (env.ADDITIONAL_REDIRECT_URLS.includes(env.SITE_URL.replace(/^https:\/\//, ''))) {
+    ok('ADDITIONAL_REDIRECT_URLS aponta para o domínio do app')
+  } else {
+    erro('ADDITIONAL_REDIRECT_URLS não bate com o SITE_URL — o login vai recusar o retorno')
+  }
+}
+
+console.log('\n── Fotos dos sonhos ──')
+const esquemas = (env.PGRST_DB_SCHEMAS ?? '').split(',').map((s) => s.trim())
+if (esquemas.includes('storage')) ok('PGRST_DB_SCHEMAS inclui "storage"')
+else erro('PGRST_DB_SCHEMAS precisa incluir "storage", senão as fotos não funcionam')
+if (esquemas.includes('public')) ok('PGRST_DB_SCHEMAS inclui "public"')
+else erro('PGRST_DB_SCHEMAS precisa incluir "public" — é onde ficam os sonhos')
+if (env.GLOBAL_S3_BUCKET && env.GLOBAL_S3_BUCKET !== 'dream-images') {
+  aviso(`GLOBAL_S3_BUCKET é "${env.GLOBAL_S3_BUCKET}"; o app usa "dream-images"`)
 }
 
 console.log('\n── E-mail ──')
 if (env.ENABLE_EMAIL_AUTOCONFIRM === 'true') {
   aviso(
-    'confirmação de e-mail DESLIGADA (autoconfirm). É o certo enquanto não há SMTP, ' +
+    'confirmação de e-mail DESLIGADA. É o certo enquanto não há SMTP, ' +
       'mas sem SMTP a recuperação de senha não funciona.',
   )
-} else if (!env.SMTP_HOST || env.SMTP_HOST.includes('supabase.io')) {
-  erro('confirmação de e-mail ligada sem SMTP real — ninguém conseguirá se cadastrar')
+} else if (!env.SMTP_HOST) {
+  erro('confirmação de e-mail LIGADA sem SMTP — ninguém conseguirá se cadastrar')
 } else {
   ok(`SMTP configurado: ${env.SMTP_HOST}`)
 }
 
 console.log(
   falhas === 0
-    ? '\n✅ .env pronto para subir\n'
+    ? '\n✅ .env pronto. Suba com: docker compose up -d\n'
     : `\n❌ ${falhas} problema(s) — corrija antes de subir\n`,
 )
 process.exit(falhas === 0 ? 0 : 1)

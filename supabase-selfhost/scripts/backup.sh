@@ -15,7 +15,7 @@ set -euo pipefail
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE="$(cd "$AQUI/.." && pwd)"
 DESTINO="${1:-/root/backups/wedream}"
-CONTAINER="${CONTAINER_DB:-wedream-supabase-db}"
+CONTAINER="${CONTAINER_DB:-wedream-db}"
 DIAS=14
 HOJE="$(date +%F)"
 
