@@ -38,3 +38,10 @@ Thumbs.db
 *.log
 .vscode/
 .idea/
+
+# Dados do Supabase auto-hospedado. NUNCA versionar: são as fotos dos
+# sonhos e os backups. Ficam de fora também para que um `git checkout
+# --force` no servidor jamais os toque.
+supabase-selfhost/volumes/storage/
+supabase-selfhost/volumes/db-data/
+backups/

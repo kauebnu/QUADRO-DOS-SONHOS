@@ -163,8 +163,22 @@ fi
 passo "4/9  Baixando o projeto"
 # =====================================================================
 if [ -d "$BASE/.git" ]; then
-  git -C "$BASE" fetch --quiet origin "$BRANCH" && \
-  git -C "$BASE" checkout --quiet -B "$BRANCH" "origin/$BRANCH" && \
+  git -C "$BASE" fetch --quiet origin "$BRANCH" || falhar "não consegui buscar as atualizações"
+
+  # Se alguém editou um arquivo do projeto à mão no servidor (para
+  # destravar alguma coisa), o checkout normal recusaria e a instalação
+  # ficaria presa na versão antiga. Avisamos e descartamos a edição: a
+  # versão correta é a do GitHub.
+  if ! git -C "$BASE" diff --quiet || ! git -C "$BASE" diff --cached --quiet; then
+    avisar "havia arquivos editados à mão em $BASE — substituídos pela versão do GitHub"
+    avisar "  (o .env, as fotos e os backups não são tocados)"
+  fi
+
+  # --force descarta as edições em arquivos versionados. NUNCA usar
+  # `git clean` aqui: as fotos dos sonhos e o .env não são versionados,
+  # e seriam apagados.
+  git -C "$BASE" checkout --quiet --force -B "$BRANCH" "origin/$BRANCH" \
+    || falhar "não consegui atualizar o projeto em $BASE"
   ok "projeto atualizado em $BASE"
 else
   mkdir -p "$BASE"
