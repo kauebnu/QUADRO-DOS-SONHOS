@@ -30,6 +30,20 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
+# Posse do schema auth. Já roda na criação do banco, mas repetimos aqui
+# para consertar também um banco criado antes desta correção existir:
+# sem isso o GoTrue falha com "must be owner of function uid" e o login
+# fica fora do ar. Rodar de novo não muda nada.
+DONO_AUTH="$AQUI/../volumes/db/auth-owner.sql"
+if [ -f "$DONO_AUTH" ]; then
+  echo "▸ Conferindo o dono do schema auth…"
+  if ! docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -U postgres -d postgres -q < "$DONO_AUTH"; then
+    echo "✗ Não foi possível ajustar o dono do schema auth."
+    exit 1
+  fi
+  echo "  ok."
+fi
+
 shopt -s nullglob
 arquivos=("$MIGRATIONS"/*.sql)
 if [ ${#arquivos[@]} -eq 0 ]; then

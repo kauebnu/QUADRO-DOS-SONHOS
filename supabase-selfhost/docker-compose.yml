@@ -44,6 +44,7 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
       # rodam uma única vez, na criação do banco
+      - ./volumes/db/auth-owner.sql:/docker-entrypoint-initdb.d/init-scripts/99-auth-owner.sql:ro
       - ./volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
       - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
     ports:
@@ -107,7 +108,8 @@ services:
     ports:
       - "127.0.0.1:${AUTH_PORT:-4001}:9999"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9999/health"]
+      # 127.0.0.1 pelo mesmo motivo do storage: localhost pode cair no ::1
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9999/health"]
       interval: 15s
       timeout: 5s
       retries: 6
@@ -138,12 +140,12 @@ services:
       PGRST_ADMIN_SERVER_HOST: "*"
     ports:
       - "127.0.0.1:${REST_PORT:-4002}:3000"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:3001/ready || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 6
-      start_period: 20s
+    # SEM healthcheck, de propósito: a imagem do PostgREST é distroless —
+    # só existe /bin/postgrest lá dentro, sem shell, curl ou wget. Qualquer
+    # teste aqui falha com "exec: /bin/sh: no such file or directory" e o
+    # container fica eternamente unhealthy mesmo respondendo normalmente.
+    # A pilha oficial do Supabase também não define healthcheck para ele.
+    # Quem confere se o PostgREST subiu é o instalador, do lado de fora.
     logging: *registro
 
   # ----------------------------------------------- fotos dos sonhos
@@ -186,7 +188,10 @@ services:
     ports:
       - "127.0.0.1:${STORAGE_PORT:-4003}:5000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5000/status"]
+      # 127.0.0.1 e não localhost: dentro deste container localhost resolve
+      # primeiro para ::1 (IPv6) e o serviço escuta só em IPv4 — o teste
+      # dava "connection refused" com o storage funcionando perfeitamente.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/status"]
       interval: 15s
       timeout: 5s
       retries: 6

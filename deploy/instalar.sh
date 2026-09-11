@@ -197,10 +197,17 @@ echo "  subindo os 4 containers (na 1ª vez baixa ~800 MB)…"
 docker compose up -d >/tmp/wd-sb.log 2>&1 || { tail -25 /tmp/wd-sb.log; falhar "o Supabase não subiu"; }
 
 echo -n "  aguardando ficarem saudáveis"
+PORTA_REST=$(pega REST_PORT); PORTA_REST="${PORTA_REST:-4002}"
 PRONTO=0
 for _ in $(seq 1 60); do
-  SAUD=$(docker compose ps --format '{{.Name}} {{.Health}}' 2>/dev/null | grep -c healthy)
-  if [ "$SAUD" -ge 4 ]; then PRONTO=1; echo; break; fi
+  # awk com igualdade exata, nunca `grep -c healthy`: "unhealthy" contém
+  # "healthy", então o grep dava o serviço quebrado como pronto.
+  # São 3 e não 4 — o rest não tem healthcheck (a imagem é distroless);
+  # quem confere se ele subiu é o curl logo abaixo.
+  SAUD=$(docker compose ps --format '{{.Name}} {{.Health}}' 2>/dev/null | awk '$2 == "healthy"' | wc -l)
+  REST_OK=0
+  curl -fsS --max-time 3 "http://127.0.0.1:$PORTA_REST/" >/dev/null 2>&1 && REST_OK=1
+  if [ "$SAUD" -ge 3 ] && [ "$REST_OK" = "1" ]; then PRONTO=1; echo; break; fi
   echo -n "."; sleep 5
 done
 [ "$PRONTO" = "1" ] || { echo; docker compose ps; falhar "os serviços do Supabase não ficaram prontos.
