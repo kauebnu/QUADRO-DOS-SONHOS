@@ -293,13 +293,22 @@ passo "8/9  Publicando os domínios com HTTPS"
 if tem nginx; then
   cp deploy/nginx-proxy-comum.conf /etc/nginx/wedream-proxy-comum.conf
 
+  # Copia um arquivo do repositório para o nginx, trocando os domínios
+  # caso tenham sido mudados por variável de ambiente. O "api." vem
+  # primeiro, senão o segundo sed estragaria o que o primeiro fez.
+  copiar_site() {
+    cp "$1" "$2"
+    sed -i -e "s/api\.quadrodossonhos\.antonellaroweder\.com\.br/$DOMINIO_API/g" \
+           -e "s/quadrodossonhos\.antonellaroweder\.com\.br/$DOMINIO_APP/g" "$2"
+  }
+
   instalar_site() {
     local origem="$1" nome="$2"
     if [ -e "/etc/nginx/sites-available/$nome" ] && ! grep -q "we-dream\|WE DREAM" "/etc/nginx/sites-available/$nome" 2>/dev/null; then
       avisar "/etc/nginx/sites-available/$nome já existe e não é nosso — NÃO foi tocado"
       return 1
     fi
-    cp "$origem" "/etc/nginx/sites-available/$nome"
+    copiar_site "$origem" "/etc/nginx/sites-available/$nome"
     ln -sf "/etc/nginx/sites-available/$nome" "/etc/nginx/sites-enabled/$nome"
     ok "site $nome instalado"
   }
@@ -310,8 +319,11 @@ if tem nginx; then
   # o arquivo do app já vem com bloco 443; antes do certificado existir o
   # nginx não valida. Deixamos o certbot criar o bloco a partir do :80.
   if [ ! -d "/etc/letsencrypt/live/$DOMINIO_APP" ]; then
-    sed -i '/listen 443/,$d' "/etc/nginx/sites-available/quadrodossonhos.conf" 2>/dev/null
-    printf '\nserver {\n    listen 80;\n    server_name %s;\n    client_max_body_size 20m;\n    location / {\n        proxy_pass http://127.0.0.1:4000;\n        include /etc/nginx/wedream-proxy-comum.conf;\n    }\n}\n' \
+    # O "# we-dream" da primeira linha NÃO é enfeite: sem ele, a própria
+    # proteção acima passa a ver este arquivo como "de outro projeto" e
+    # recusa atualizá-lo na próxima execução — o site ficaria para sempre
+    # neste bloco de emergência, sem HSTS, HTTP/2 nem IPv6.
+    printf '# we-dream — bloco temporário até o certificado existir\nserver {\n    listen 80;\n    server_name %s;\n    client_max_body_size 20m;\n    location /.well-known/acme-challenge/ { root /var/www/html; }\n    location / {\n        proxy_pass http://127.0.0.1:4000;\n        include /etc/nginx/wedream-proxy-comum.conf;\n    }\n}\n' \
       "$DOMINIO_APP" > "/etc/nginx/sites-available/quadrodossonhos.conf"
   fi
 
@@ -351,6 +363,31 @@ if tem nginx; then
       fi
     done
     systemctl reload nginx 2>/dev/null
+
+    # Agora que o certificado existe, troca o bloco de emergência (só :80)
+    # pela configuração completa do repositório: HSTS, HTTP/2, IPv6 e
+    # server_tokens off. Sem isso o site fica no mínimo para sempre.
+    #
+    # Com volta atrás automática: este mesmo nginx serve o AtendimentoPRO,
+    # a Evolution API, o aulingo e o rachajusto. Se a configuração nova
+    # não passar no teste, a anterior volta e ninguém sai do ar.
+    ATIVO="/etc/nginx/sites-available/quadrodossonhos.conf"
+    if [ -d "/etc/letsencrypt/live/$DOMINIO_APP" ] \
+       && ! grep -q 'Strict-Transport-Security' "$ATIVO" 2>/dev/null; then
+      ANTES="$(mktemp)"; cp "$ATIVO" "$ANTES"
+      copiar_site deploy/nginx-host-quadrodossonhos.conf "$ATIVO"
+
+      if nginx -t >/tmp/wd-nginx2.log 2>&1; then
+        systemctl reload nginx 2>/dev/null
+        ok "configuração completa aplicada (HTTPS, HSTS, HTTP/2)"
+        rm -f "$ANTES"
+      else
+        cp "$ANTES" "$ATIVO"; rm -f "$ANTES"
+        systemctl reload nginx 2>/dev/null
+        avisar "a configuração completa foi recusada pelo nginx — voltei a anterior, o site segue no ar:"
+        grep -m2 -i 'emerg\|error' /tmp/wd-nginx2.log | sed 's/^/     /'
+      fi
+    fi
 
     # Faltou algum? A causa costuma ser passageira (a Let's Encrypt valida
     # de vários pontos do mundo e o domínio é recente). Deixa tentando.
