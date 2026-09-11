@@ -4,6 +4,9 @@
 #
 #   ./scripts/backup.sh [pasta-destino]
 #
+# Para uma cópia sem as chaves, própria para enviar a nuvem de terceiros:
+#   INCLUIR_ENV=0 ./scripts/backup.sh /pasta/para/enviar
+#
 # No cron, todo dia às 3h:
 #   0 3 * * * /opt/we-dream/supabase-selfhost/scripts/backup.sh >> /var/log/wedream-backup.log 2>&1
 #
@@ -69,10 +72,21 @@ else
 fi
 
 # --------------------------------------------------------- chaves (.env)
-if [ -f "$BASE/.env" ]; then
+#
+# As chaves fazem parte do backup porque sem elas o dump do banco é quase
+# inútil: o JWT_SECRET precisa ser o MESMO na restauração, senão todos os
+# logins e todos os links assinados das fotos param de valer.
+#
+# Mas é este arquivo que impede o backup de ser jogado em nuvem de
+# terceiros sem pensar. Para gerar uma cópia sem segredos:
+#     INCLUIR_ENV=0 ./scripts/backup.sh /caminho/para/enviar
+if [ "${INCLUIR_ENV:-1}" = "1" ] && [ -f "$BASE/.env" ]; then
   cp "$BASE/.env" "$DESTINO/env-supabase-$HOJE.txt"
   chmod 600 "$DESTINO/env-supabase-$HOJE.txt"
   echo "▸ Chaves do Supabase copiadas (contém segredos — proteja esta pasta)"
+elif [ "${INCLUIR_ENV:-1}" != "1" ]; then
+  echo "▸ Chaves NÃO incluídas (INCLUIR_ENV=0)"
+  echo "  Guarde o JWT_SECRET em outro lugar: sem ele este backup não restaura."
 fi
 
 # ------------------------------------------------------------- limpeza
@@ -85,4 +99,12 @@ echo
 echo "✅ Backup concluído. Conteúdo de $DESTINO:"
 ls -lh "$DESTINO" | tail -n +2 | sed 's/^/  /'
 echo
-echo "⚠ Copie estes arquivos para fora da VPS (Google Drive, S3, sua máquina)."
+echo "⚠ Copie estes arquivos para fora da VPS — backup que mora no mesmo"
+echo "  servidor não protege contra perder o servidor."
+if [ -f "$DESTINO/env-supabase-$HOJE.txt" ]; then
+  echo
+  echo "⚠ ATENÇÃO ao enviar para nuvem de terceiros (Drive, Dropbox, S3):"
+  echo "  env-supabase-$HOJE.txt tem as chaves do Supabase em texto puro."
+  echo "  Ou criptografe antes, ou gere a cópia de envio sem ele:"
+  echo "      INCLUIR_ENV=0 $0 /pasta/para/enviar"
+fi
