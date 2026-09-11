@@ -9,8 +9,17 @@
 #
 # Guarda os últimos 14 dias. COPIE para fora da VPS — backup que mora no
 # mesmo servidor não protege contra perder o servidor.
+#
+# ATENÇÃO: a pasta de destino passa a conter dados sensíveis — o dump do
+# banco (com os dados e os hashes de senha das contas) e uma cópia do
+# .env do Supabase (com as chaves). Por isso tudo aqui nasce fechado.
 # =====================================================================
 set -euo pipefail
+
+# Tudo que este script criar fica legível só pelo dono (o root).
+# Sem isto, o dump do banco e o tar das fotos nasciam com a permissão
+# padrão, legíveis por qualquer conta do servidor.
+umask 077
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE="$(cd "$AQUI/.." && pwd)"
@@ -20,6 +29,7 @@ DIAS=14
 HOJE="$(date +%F)"
 
 mkdir -p "$DESTINO"
+chmod 700 "$DESTINO"   # vale também para uma pasta criada antes desta correção
 
 echo "── Backup WE DREAM — $(date '+%d/%m/%Y %H:%M') ──"
 
