@@ -308,10 +308,22 @@ if tem nginx; then
     falhar "a configuração do nginx não passou no teste — nada foi recarregado"
   fi
 
+  # Agenda novas tentativas de certificado. O script se tira do cron
+  # sozinho assim que os dois certificados existirem.
+  agendar_https() {
+    chmod +x "$BASE/deploy/tentar-https.sh" 2>/dev/null
+    local linha="17 */2 * * * $BASE/deploy/tentar-https.sh"
+    local atual; atual="$(crontab -l 2>/dev/null)" || atual=""
+    printf '%s\n%s\n' "$(printf '%s\n' "$atual" | grep -v 'tentar-https.sh')" "$linha" \
+      | grep -v '^$' | crontab - 2>/dev/null \
+      && ok "novas tentativas de HTTPS agendadas (de 2 em 2h, para sozinho ao conseguir)" \
+      || avisar "não consegui agendar as tentativas de HTTPS no cron"
+  }
+
   if [ "$DNS_FALTANDO" = "1" ]; then
     avisar "HTTPS pulado: o DNS ainda não aponta para cá."
-    avisar "Depois que propagar, rode:"
-    avisar "  certbot --nginx -d $DOMINIO_APP -d $DOMINIO_API --non-interactive --agree-tos -m $EMAIL_CERT --redirect"
+    avisar "Assim que propagar, o certificado sai sozinho:"
+    agendar_https
   else
     tem certbot || apt-get install -y -qq certbot python3-certbot-nginx >/dev/null 2>&1
     for d in "$DOMINIO_APP" "$DOMINIO_API"; do
@@ -325,6 +337,12 @@ if tem nginx; then
       fi
     done
     systemctl reload nginx 2>/dev/null
+
+    # Faltou algum? A causa costuma ser passageira (a Let's Encrypt valida
+    # de vários pontos do mundo e o domínio é recente). Deixa tentando.
+    if [ ! -d "/etc/letsencrypt/live/$DOMINIO_APP" ] || [ ! -d "/etc/letsencrypt/live/$DOMINIO_API" ]; then
+      agendar_https
+    fi
   fi
 else
   avisar "nginx não encontrado — os serviços estão no ar em 127.0.0.1, falta publicar o domínio"
@@ -374,9 +392,8 @@ Chaves completas em:
   ${BASE}/.env
   ${BASE}/supabase-selfhost/.env
 
-Backup diário:
-  crontab -e
-  0 3 * * * ${BASE}/supabase-selfhost/scripts/backup.sh >> /var/log/wedream-backup.log 2>&1
+Backup diário: já agendado para as 3h (crontab -l para conferir).
+Guarda banco + fotos + chaves, mantendo 14 dias.
 ================================================================
 EOF
 chmod 600 "$CREDENCIAIS"
@@ -392,8 +409,26 @@ printf '%s╚══════════════════════�
 echo "  Abra no celular:  https://${DOMINIO_APP}"
 echo "  Credenciais em:   ${CREDENCIAIS}"
 echo
-echo "  Falta só uma coisa — o backup diário:"
-echo "    (crontab -l 2>/dev/null; echo '0 3 * * * ${BASE}/supabase-selfhost/scripts/backup.sh >> /var/log/wedream-backup.log 2>&1') | crontab -"
+
+# --------------------------------------------------- backup diário às 3h
+# Instalado aqui, e não deixado como tarefa manual: um app de sonhos sem
+# backup é um app que pode perder anos de fotos. Só mexe na linha dele.
+BACKUP_SH="${BASE}/supabase-selfhost/scripts/backup.sh"
+if [ -f "$BACKUP_SH" ]; then
+  chmod +x "$BACKUP_SH" 2>/dev/null
+  if crontab -l 2>/dev/null | grep -q 'supabase-selfhost/scripts/backup.sh'; then
+    ok "backup diário já estava agendado"
+  else
+    CRON_ATUAL="$(crontab -l 2>/dev/null)" || CRON_ATUAL=""
+    if printf '%s\n0 3 * * * %s >> /var/log/wedream-backup.log 2>&1\n' \
+         "$CRON_ATUAL" "$BACKUP_SH" | grep -v '^$' | crontab - 2>/dev/null; then
+      ok "backup diário agendado para as 3h (log em /var/log/wedream-backup.log)"
+    else
+      avisar "não consegui agendar o backup. Rode à mão:"
+      avisar "  (crontab -l 2>/dev/null; echo '0 3 * * * $BACKUP_SH >> /var/log/wedream-backup.log 2>&1') | crontab -"
+    fi
+  fi
+fi
 echo
 
 [ "$FALHAS" -eq 0 ] || echo "  Para investigar:  cd $BASE && docker compose logs --tail 40"

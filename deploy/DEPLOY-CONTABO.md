@@ -263,6 +263,30 @@ nginx -t && systemctl reload nginx
 
 A renovação é automática (`systemctl status certbot.timer`).
 
+#### Se o certbot falhar na *secondary validation*
+
+```
+During secondary validation: DNS problem: networking error looking up A
+```
+
+Isso **não** é erro de configuração. A Let's Encrypt valida de vários
+pontos do mundo, e um domínio recém-criado pode ainda não ser enxergado
+por todos eles — mesmo com o DNS já correto em todos os testes locais.
+
+Não fique tentando à mão: a Let's Encrypt permite só **5 falhas por
+hostname por hora**. O instalador já agenda novas tentativas sozinho:
+
+```bash
+/opt/we-dream/deploy/tentar-https.sh      # rodar na hora, se quiser
+tail -f /var/log/wedream-https.log        # acompanhar
+```
+
+Ele tenta de 2 em 2 horas e **se remove do cron** assim que os dois
+certificados existirem. Até lá o site continua no ar por HTTP.
+
+Se em uma semana não sair, o problema não é passageiro: aponte o domínio
+para a **Cloudflare** (plano grátis) e rode o script de novo.
+
 ### Se a VPS usa **Traefik**
 
 Adicione ao serviço `web` do `/opt/we-dream/docker-compose.yml`:
